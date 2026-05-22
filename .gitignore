@@ -1,0 +1,48 @@
+# Helm
+*.tgz
+/charts/*/charts/
+Chart.lock
+
+# Kubernetes
+*.kubeconfig
+kubeconfig
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+*.iml
+
+# Build artifacts
+dist/
+build/
+*.o
+*.a
+
+# Dependency directories
+node_modules/
+vendor/
+.bundle/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.cert
+
+# OS files
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
