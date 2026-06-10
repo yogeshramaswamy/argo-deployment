@@ -52,10 +52,10 @@ metadata:
 spec:
   ingressClassName: alb
   rules:
-    - host: app-stag.hayesinc.com
+    - host: hayes-argocd-stag.hayesinc.com
       http:
         paths:
-          - path: /
+          - path: /test-app
             pathType: Prefix
             backend:
               service:
