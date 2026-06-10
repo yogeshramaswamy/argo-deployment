@@ -2,8 +2,8 @@
 # =============================================================================
 # Argo CD Deploy Script (Multi-Cluster)
 # =============================================================================
-# Installs or upgrades Argo CD on an EKS cluster using Helm.
-# This is the single entry point for all Argo CD deployments.
+# Installs or upgrades AWS LB Controller + Argo CD on an EKS cluster using Helm.
+# This is the single entry point for all deployments.
 #
 # Usage:
 #   ./bootstrap/install.sh <env>
@@ -27,11 +27,14 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 # Defaults
-NAMESPACE="argocd"
-RELEASE_NAME="argocd"
+ARGOCD_NAMESPACE="argocd"
+ARGOCD_RELEASE="argocd"
+LB_NAMESPACE="kube-system"
+LB_RELEASE="aws-lb-controller"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${SCRIPT_DIR}/.."
-CHART_PATH="${REPO_ROOT}/argocd"
+ARGOCD_CHART_PATH="${REPO_ROOT}/argocd"
+LB_CHART_PATH="${REPO_ROOT}/aws-lb-controller"
 DRY_RUN=false
 
 # =============================================================================
@@ -119,17 +122,23 @@ done
 CLUSTER_ARN="arn:aws:eks:${REGION}:${AWS_ACCOUNT_ID}:cluster/${CLUSTER_NAME}"
 
 # =============================================================================
-# Resolve values file
-# Priority: values-{env}.yaml > values.yaml
+# Resolve values files
 # =============================================================================
-if [[ -f "${CHART_PATH}/values-${ENV}.yaml" ]]; then
-    VALUES_FILE="${CHART_PATH}/values-${ENV}.yaml"
+if [[ -f "${ARGOCD_CHART_PATH}/values-${ENV}.yaml" ]]; then
+    ARGOCD_VALUES="${ARGOCD_CHART_PATH}/values-${ENV}.yaml"
 else
-    VALUES_FILE="${CHART_PATH}/values.yaml"
+    ARGOCD_VALUES="${ARGOCD_CHART_PATH}/values.yaml"
 fi
 
-if [[ ! -f "$VALUES_FILE" ]]; then
-    echo -e "${RED}ERROR: Values file not found: ${VALUES_FILE}${NC}"
+LB_VALUES="${LB_CHART_PATH}/values.yaml"
+
+if [[ ! -f "$ARGOCD_VALUES" ]]; then
+    echo -e "${RED}ERROR: Argo CD values file not found: ${ARGOCD_VALUES}${NC}"
+    exit 1
+fi
+
+if [[ ! -f "$LB_VALUES" ]]; then
+    echo -e "${RED}ERROR: LB Controller values file not found: ${LB_VALUES}${NC}"
     exit 1
 fi
 
@@ -138,32 +147,33 @@ fi
 # =============================================================================
 echo ""
 echo -e "${GREEN}╔══════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║         Argo CD Deploy                       ║${NC}"
+echo -e "${GREEN}║         EKS Cluster Deploy                    ║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════╝${NC}"
 echo ""
 echo -e "  Env file:    ${GREEN}${ENV_FILE}${NC}"
 echo -e "  Cluster:     ${GREEN}${CLUSTER_NAME}${NC}"
 echo -e "  Region:      ${GREEN}${REGION}${NC}"
 echo -e "  Environment: ${GREEN}${ENV}${NC}"
-echo -e "  Values:      ${GREEN}${VALUES_FILE}${NC}"
+echo -e "  Argo Values: ${GREEN}${ARGOCD_VALUES}${NC}"
+echo -e "  LB Values:   ${GREEN}${LB_VALUES}${NC}"
 echo ""
 
 if [[ "$DRY_RUN" == true ]]; then
     echo -e "${YELLOW}[DRY RUN] Would execute the following steps:${NC}"
     echo "  1. kubectl config use-context ${CLUSTER_ARN}"
-    echo "  2. kubectl create namespace ${NAMESPACE}"
-    echo "  3. Create repo-creds secret (GitHub PAT for private repo access)"
-    echo "  4. helm repo add argo https://argoproj.github.io/argo-helm"
-    echo "  5. helm dependency build ${CHART_PATH}"
-    echo "  6. helm upgrade --install ${RELEASE_NAME} ${CHART_PATH} --values ${VALUES_FILE}"
-    echo "  7. Wait for argocd-server rollout"
+    echo "  2. Verify cluster connectivity"
+    echo "  3. Deploy AWS LB Controller (if not present)"
+    echo "  4. Create argocd namespace"
+    echo "  5. Create repo-creds secret"
+    echo "  6. Deploy Argo CD via Helm"
+    echo "  7. Wait for pods to be ready"
     echo ""
     echo -e "${YELLOW}[DRY RUN] No changes were made.${NC}"
     exit 0
 fi
 
 # Step 1: Verify prerequisites
-echo -e "${YELLOW}[1/7] Verifying prerequisites...${NC}"
+echo -e "${YELLOW}[1/8] Verifying prerequisites...${NC}"
 
 for cmd in kubectl helm aws; do
     if ! command -v "$cmd" &> /dev/null; then
@@ -174,7 +184,7 @@ done
 echo -e "  ${GREEN}✓${NC} kubectl, helm, aws CLI found"
 
 # Step 2: Set kubectl context using cluster ARN
-echo -e "${YELLOW}[2/7] Switching kubectl context to: ${CLUSTER_ARN}...${NC}"
+echo -e "${YELLOW}[2/8] Switching kubectl context to: ${CLUSTER_ARN}...${NC}"
 kubectl config use-context "${CLUSTER_ARN}"
 
 CURRENT_CONTEXT=$(kubectl config current-context)
@@ -194,13 +204,37 @@ if [[ "$confirm" != "y" ]]; then
     exit 1
 fi
 
-# Step 3: Create namespace
-echo -e "${YELLOW}[3/7] Creating namespace '${NAMESPACE}'...${NC}"
-kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+# Step 3: Deploy AWS Load Balancer Controller
+echo -e "${YELLOW}[3/8] Deploying AWS Load Balancer Controller...${NC}"
+if helm status "${LB_RELEASE}" -n "${LB_NAMESPACE}" &>/dev/null; then
+    echo -e "  ${GREEN}✓${NC} AWS LB Controller already installed, upgrading..."
+else
+    echo -e "  Installing AWS LB Controller..."
+fi
 
-# Step 4: Configure Git repo credentials (PAT)
-echo -e "${YELLOW}[4/7] Configuring Git repo credentials...${NC}"
-if kubectl -n "${NAMESPACE}" get secret repo-creds &> /dev/null; then
+helm repo add eks https://aws.github.io/eks-charts 2>/dev/null || true
+helm dependency build "${LB_CHART_PATH}" 2>/dev/null
+
+LB_OUTPUT=$(helm upgrade --install "${LB_RELEASE}" "${LB_CHART_PATH}" \
+    --namespace "${LB_NAMESPACE}" \
+    --values "${LB_VALUES}" \
+    --wait \
+    --timeout 3m 2>&1) || { echo -e "${RED}ERROR: LB Controller deploy failed${NC}"; echo "$LB_OUTPUT" | grep -i "error"; exit 1; }
+
+echo -e "  ${GREEN}✓${NC} AWS LB Controller deployed"
+
+# Wait for controller pods to be ready
+kubectl -n "${LB_NAMESPACE}" rollout status deployment/aws-lb-controller-aws-load-balancer-controller --timeout=60s 2>/dev/null || \
+kubectl -n "${LB_NAMESPACE}" rollout status deployment/aws-load-balancer-controller --timeout=60s 2>/dev/null || true
+echo -e "  ${GREEN}✓${NC} LB Controller pods ready"
+
+# Step 4: Create argocd namespace
+echo -e "${YELLOW}[4/8] Creating namespace '${ARGOCD_NAMESPACE}'...${NC}"
+kubectl create namespace "${ARGOCD_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+
+# Step 5: Configure Git repo credentials (PAT)
+echo -e "${YELLOW}[5/8] Configuring Git repo credentials...${NC}"
+if kubectl -n "${ARGOCD_NAMESPACE}" get secret repo-creds &> /dev/null; then
     echo -e "  ${GREEN}✓${NC} repo-creds secret already exists, skipping"
 else
     if [[ -z "${GITHUB_PAT:-}" ]]; then
@@ -210,40 +244,43 @@ else
         exit 1
     fi
 
-    kubectl -n "${NAMESPACE}" create secret generic repo-creds \
+    kubectl -n "${ARGOCD_NAMESPACE}" create secret generic repo-creds \
         --from-literal=url=https://github.com/yogeshramaswamy/argo-deployment.git \
         --from-literal=username=git \
         --from-literal=password="${GITHUB_PAT}" \
         --from-literal=type=git
 
-    kubectl -n "${NAMESPACE}" label secret repo-creds argocd.argoproj.io/secret-type=repository
+    kubectl -n "${ARGOCD_NAMESPACE}" label secret repo-creds argocd.argoproj.io/secret-type=repository
 
     echo -e "  ${GREEN}✓${NC} repo-creds secret created"
 fi
 
-# Step 5: Add Argo Helm repo
-echo -e "${YELLOW}[5/7] Adding Argo Helm repository...${NC}"
+# Step 6: Add Argo Helm repo and build dependencies
+echo -e "${YELLOW}[6/8] Adding Argo Helm repository...${NC}"
 helm repo add argo https://argoproj.github.io/argo-helm 2>/dev/null || true
 helm repo update
+helm dependency build "${ARGOCD_CHART_PATH}"
 
-# Step 6: Build dependencies and deploy
-echo -e "${YELLOW}[6/7] Building Helm chart dependencies...${NC}"
-helm dependency build "${CHART_PATH}"
-
-echo -e "${YELLOW}[7/7] Deploying Argo CD (env: ${ENV})...${NC}"
+# Step 7: Deploy Argo CD
+echo -e "${YELLOW}[7/8] Deploying Argo CD (env: ${ENV})...${NC}"
 echo -e "  This may take a few minutes while pods start up..."
-HELM_OUTPUT=$(helm upgrade --install "${RELEASE_NAME}" "${CHART_PATH}" \
-    --namespace "${NAMESPACE}" \
+HELM_OUTPUT=$(helm upgrade --install "${ARGOCD_RELEASE}" "${ARGOCD_CHART_PATH}" \
+    --namespace "${ARGOCD_NAMESPACE}" \
     --create-namespace \
-    --values "${VALUES_FILE}" \
+    --values "${ARGOCD_VALUES}" \
     --wait \
-    --timeout 5m 2>&1) || { echo -e "${RED}ERROR: Helm deploy failed${NC}"; echo "$HELM_OUTPUT" | grep -i "error"; exit 1; }
+    --timeout 5m 2>&1) || { echo -e "${RED}ERROR: Argo CD deploy failed${NC}"; echo "$HELM_OUTPUT" | grep -i "error"; exit 1; }
 
-# Show only the meaningful output
 echo "$HELM_OUTPUT" | grep -E "^(NAME|LAST DEPLOYED|NAMESPACE|STATUS|REVISION)" | while read -r line; do
     echo -e "  ${GREEN}${line}${NC}"
 done
-echo -e "  ${GREEN}✓${NC} Helm deploy complete"
+echo -e "  ${GREEN}✓${NC} Argo CD deployed"
+
+# Step 8: Wait for pods
+echo -e "${YELLOW}[8/8] Waiting for Argo CD pods to be ready...${NC}"
+kubectl -n "${ARGOCD_NAMESPACE}" rollout status deployment/argocd-server --timeout=120s
+kubectl -n "${ARGOCD_NAMESPACE}" rollout status deployment/argocd-repo-server --timeout=120s
+echo -e "  ${GREEN}✓${NC} All pods ready"
 
 # =============================================================================
 # Done
@@ -255,19 +292,16 @@ echo -e "${GREEN}╚════════════════════
 echo ""
 echo -e "  Cluster:     ${GREEN}${CLUSTER_NAME}${NC}"
 echo -e "  Environment: ${GREEN}${ENV}${NC}"
-echo -e "  Namespace:   ${GREEN}${NAMESPACE}${NC}"
+echo -e "  LB Controller: ${GREEN}${LB_NAMESPACE}${NC}"
+echo -e "  Argo CD:       ${GREEN}${ARGOCD_NAMESPACE}${NC}"
 echo ""
 echo -e "  ${YELLOW}Get admin password:${NC}"
-echo "    kubectl -n ${NAMESPACE} get secret argocd-initial-admin-secret -o jsonpath=\"{.data.password}\" | base64 -d && echo"
+echo "    kubectl -n ${ARGOCD_NAMESPACE} get secret argocd-initial-admin-secret -o jsonpath=\"{.data.password}\" | base64 -d && echo"
 echo ""
 echo -e "  ${YELLOW}Port-forward to access UI:${NC}"
-echo "    kubectl -n ${NAMESPACE} port-forward svc/argocd-server 8080:443"
+echo "    kubectl -n ${ARGOCD_NAMESPACE} port-forward svc/argocd-server 8080:443"
 echo "    Then open: https://localhost:8080"
 echo ""
-echo -e "  ${YELLOW}Login via CLI:${NC}"
-echo "    argocd login localhost:8080 --username admin --password <password> --insecure"
-echo ""
-echo -e "  ${YELLOW}To upgrade Argo CD later:${NC}"
-echo "    1. Edit argocd/values.yaml or argocd/Chart.yaml"
-echo "    2. Run: ./bootstrap/install.sh ${ENV}"
+echo -e "  ${YELLOW}To upgrade later:${NC}"
+echo "    ./bootstrap/install.sh ${ENV}"
 echo ""

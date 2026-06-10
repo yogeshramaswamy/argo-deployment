@@ -4,16 +4,17 @@ metadata:
   name: argocd-ingress
   namespace: argocd
   annotations:
-    alb.ingress.kubernetes.io/group.name: {{ .Values.ingress.albGroupName }}
+    alb.ingress.kubernetes.io/group.name: symplr-hayes-stag-eks-alb
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
-    alb.ingress.kubernetes.io/certificate-arn: {{ .Values.ingress.certificateArn }}
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-west-2:952221970209:certificate/ecfa76d0-03d9-4d9c-b981-0f2cfc145e41
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
     alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/backend-protocol: HTTPS
 spec:
   ingressClassName: alb
   rules:
-    - host: {{ .Values.global.domain }}
+    - host: hayes-argocd-stag.hayesinc.com
       http:
         paths:
           - path: /

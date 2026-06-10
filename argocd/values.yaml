@@ -1,6 +1,6 @@
 # Argo CD Helm Chart Values
 # Source: https://github.com/argoproj/argo-helm/tree/main/charts/argo-cd
-# This file is managed by Argo CD itself (self-managed pattern)
+# Deployed via: ./bootstrap/install.sh stag
 
 global:
   domain: hayes-argocd-stag.hayesinc.com
@@ -75,8 +75,3 @@ applicationSet:
 # -- Notifications (optional - enable later)
 notifications:
   enabled: false
-
-# -- Ingress (managed within this chart)
-ingress:
-  certificateArn: arn:aws:acm:us-west-2:952221970209:certificate/ecfa76d0-03d9-4d9c-b981-0f2cfc145e41
-  albGroupName: symplr-hayes-stag-eks-alb
