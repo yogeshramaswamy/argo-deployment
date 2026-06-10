@@ -12,7 +12,7 @@ spec:
   source:
     repoURL: https://github.com/yogeshramaswamy/argo-deployment.git
     targetRevision: main
-    path: apps/stag
+    path: apps/{{ .Values.global.env }}
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd

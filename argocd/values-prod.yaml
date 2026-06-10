@@ -3,6 +3,7 @@
 
 global:
   domain: hayes-argocd.hayesinc.com
+  env: prod
 
 server:
   replicas: 3
@@ -49,3 +50,7 @@ applicationSet:
 
 notifications:
   enabled: false
+
+ingress:
+  certificateArn: ""
+  albGroupName: symplr-hayes-prod-eks-alb

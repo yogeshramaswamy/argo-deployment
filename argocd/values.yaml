@@ -4,6 +4,7 @@
 
 global:
   domain: hayes-argocd-stag.hayesinc.com
+  env: stag
 
 # -- Server Configuration
 server:
@@ -78,3 +79,4 @@ notifications:
 # -- Ingress (managed within this chart)
 ingress:
   certificateArn: arn:aws:acm:us-west-2:952221970209:certificate/ecfa76d0-03d9-4d9c-b981-0f2cfc145e41
+  albGroupName: symplr-hayes-stag-eks-alb

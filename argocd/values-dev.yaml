@@ -3,6 +3,7 @@
 
 global:
   domain: hayes-argocd-dev.hayesinc.com
+  env: dev
 
 server:
   replicas: 1
@@ -47,3 +48,7 @@ applicationSet:
 
 notifications:
   enabled: false
+
+ingress:
+  certificateArn: ""
+  albGroupName: symplr-hayes-dev-eks-alb
