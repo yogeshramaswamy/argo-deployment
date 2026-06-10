@@ -3,6 +3,8 @@ kind: Application
 metadata:
   name: aws-lb-controller
   namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -19,7 +21,8 @@ spec:
     namespace: kube-system
   syncPolicy:
     automated:
-      prune: true
+      prune: false
       selfHeal: true
     syncOptions:
       - CreateNamespace=false
+      - Prune=false

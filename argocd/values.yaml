@@ -6,71 +6,57 @@ global:
   domain: hayes-argocd-stag.hayesinc.com
   environment: stag
 
-# -- Server Configuration
-server:
-  replicas: 2
+argo-cd:
+  server:
+    replicas: 2
 
-  # Ingress is managed separately via the shared ingress chart (ingress/)
-  ingress:
+    ingress:
+      enabled: false
+
+    extraArgs:
+      - --insecure
+
+  repoServer:
+    replicas: 2
+
+  controller:
+    replicas: 1
+
+  redis-ha:
     enabled: false
 
-  # Run insecure mode behind LB (TLS terminates at ALB)
-  extraArgs:
-    - --insecure
+  redis:
+    enabled: true
 
-# -- Repo Server
-repoServer:
-  replicas: 2
+  configs:
+    params:
+      server.insecure: true
 
-# -- Application Controller
-controller:
-  replicas: 1
+    cm:
+      accounts.admin: apiKey, login
+      admin.enabled: "true"
 
-# -- Redis (HA)
-redis-ha:
-  enabled: false
+      url: http://localhost:8080
 
-redis:
-  enabled: true
+      dex.config: |
+        connectors:
+          - type: github
+            id: github
+            name: GitHub
+            config:
+              clientID: Ov23liN2SIikmVhv4l0h
+              clientSecret: $dex.github.clientSecret
 
-# -- Configs
-configs:
-  params:
-    # Run server without TLS (TLS terminated at ingress/LB)
-    server.insecure: true
+    rbac:
+      policy.default: role:admin
 
-  cm:
-    accounts.admin: apiKey, login
-    admin.enabled: "true"
+    secret:
+      createSecret: true
+      extra:
+        dex.github.clientSecret: cdbd7a8c7ab254a51f89d4b8b34d76a9dfc18f6f
 
-    url: http://localhost:8080
+  applicationSet:
+    replicas: 2
 
-    # Dex GitHub OAuth (local testing)
-    dex.config: |
-      connectors:
-        - type: github
-          id: github
-          name: GitHub
-          config:
-            clientID: Ov23liN2SIikmVhv4l0h
-            clientSecret: $dex.github.clientSecret
-
-  rbac:
-    policy.default: role:admin
-
-  secret:
-    createSecret: true
-    # For production: create the secret manually via kubectl (don't commit secrets)
-    # kubectl -n argocd patch secret argocd-secret --patch='{"stringData":{"dex.github.clientSecret":"<secret>"}}'
-    #
-    # For local testing only (remove before pushing to Git):
-    extra:
-      dex.github.clientSecret: cdbd7a8c7ab254a51f89d4b8b34d76a9dfc18f6f
-
-# -- ApplicationSet Controller
-applicationSet:
-  replicas: 2
-
-# -- Notifications (optional - enable later)
-notifications:
-  enabled: false
+  notifications:
+    enabled: false
