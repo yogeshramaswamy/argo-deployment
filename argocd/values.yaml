@@ -43,7 +43,6 @@ configs:
     accounts.admin: apiKey, login
     admin.enabled: "true"
 
-    # Argo CD URL (for local testing with GitHub OAuth)
     url: http://localhost:8080
 
     # Dex GitHub OAuth (local testing)
