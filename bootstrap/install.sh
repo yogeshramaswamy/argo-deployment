@@ -1,20 +1,18 @@
 #!/bin/bash
 # =============================================================================
-# Argo CD Bootstrap Script (Multi-Cluster)
+# Argo CD Deploy Script (Multi-Cluster)
 # =============================================================================
-# Performs a ONE-TIME installation of Argo CD on any EKS cluster.
-# After bootstrap, Argo CD manages itself via the self-manage Application CR.
+# Installs or upgrades Argo CD on an EKS cluster using Helm.
+# This is the single entry point for all Argo CD deployments.
 #
 # Usage:
 #   ./bootstrap/install.sh <env>
-#   ./bootstrap/install.sh <env> --recovery
 #   ./bootstrap/install.sh <env> --dry-run
 #
 # Examples:
 #   ./bootstrap/install.sh dev
 #   ./bootstrap/install.sh stag
 #   ./bootstrap/install.sh prod
-#   ./bootstrap/install.sh stag --recovery
 #   ./bootstrap/install.sh stag --dry-run
 #
 # Env files are loaded from: bootstrap/envs/<env>.env
@@ -34,7 +32,6 @@ RELEASE_NAME="argocd"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${SCRIPT_DIR}/.."
 CHART_PATH="${REPO_ROOT}/argocd"
-RECOVERY=false
 DRY_RUN=false
 
 # =============================================================================
@@ -50,7 +47,6 @@ usage() {
     echo "  prod      Production cluster"
     echo ""
     echo -e "${YELLOW}Options:${NC}"
-    echo "  --recovery  Recovery mode - helm upgrade bypassing Argo"
     echo "  --dry-run   Show what would be done without executing"
     echo ""
     echo -e "${YELLOW}Env files:${NC}"
@@ -60,7 +56,6 @@ usage() {
     echo "  ./bootstrap/install.sh dev"
     echo "  ./bootstrap/install.sh stag"
     echo "  ./bootstrap/install.sh prod"
-    echo "  ./bootstrap/install.sh stag --recovery"
     echo "  ./bootstrap/install.sh stag --dry-run"
     exit 1
 }
@@ -76,10 +71,6 @@ shift
 # Parse remaining options
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --recovery)
-            RECOVERY=true
-            shift
-            ;;
         --dry-run)
             DRY_RUN=true
             shift
@@ -147,7 +138,7 @@ fi
 # =============================================================================
 echo ""
 echo -e "${GREEN}╔══════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║         Argo CD Bootstrap Installer          ║${NC}"
+echo -e "${GREEN}║         Argo CD Deploy                       ║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════╝${NC}"
 echo ""
 echo -e "  Env file:    ${GREEN}${ENV_FILE}${NC}"
@@ -155,7 +146,6 @@ echo -e "  Cluster:     ${GREEN}${CLUSTER_NAME}${NC}"
 echo -e "  Region:      ${GREEN}${REGION}${NC}"
 echo -e "  Environment: ${GREEN}${ENV}${NC}"
 echo -e "  Values:      ${GREEN}${VALUES_FILE}${NC}"
-echo -e "  Recovery:    ${GREEN}${RECOVERY}${NC}"
 echo ""
 
 if [[ "$DRY_RUN" == true ]]; then
@@ -173,7 +163,7 @@ if [[ "$DRY_RUN" == true ]]; then
 fi
 
 # Step 1: Verify prerequisites
-echo -e "${YELLOW}[1/8] Verifying prerequisites...${NC}"
+echo -e "${YELLOW}[1/7] Verifying prerequisites...${NC}"
 
 for cmd in kubectl helm aws; do
     if ! command -v "$cmd" &> /dev/null; then
@@ -184,7 +174,7 @@ done
 echo -e "  ${GREEN}✓${NC} kubectl, helm, aws CLI found"
 
 # Step 2: Set kubectl context using cluster ARN
-echo -e "${YELLOW}[2/8] Switching kubectl context to: ${CLUSTER_ARN}...${NC}"
+echo -e "${YELLOW}[2/7] Switching kubectl context to: ${CLUSTER_ARN}...${NC}"
 kubectl config use-context "${CLUSTER_ARN}"
 
 CURRENT_CONTEXT=$(kubectl config current-context)
@@ -198,18 +188,18 @@ if ! kubectl get nodes --no-headers 2>/dev/null; then
 fi
 echo -e "  ${GREEN}✓${NC} Cluster reachable"
 echo ""
-read -p "  Proceed with installation on this cluster? (y/n): " confirm
+read -p "  Proceed with deployment on this cluster? (y/n): " confirm
 if [[ "$confirm" != "y" ]]; then
     echo -e "${RED}Aborted.${NC}"
     exit 1
 fi
 
 # Step 3: Create namespace
-echo -e "${YELLOW}[3/8] Creating namespace '${NAMESPACE}'...${NC}"
+echo -e "${YELLOW}[3/7] Creating namespace '${NAMESPACE}'...${NC}"
 kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
 
 # Step 4: Configure Git repo credentials (PAT)
-echo -e "${YELLOW}[4/8] Configuring Git repo credentials...${NC}"
+echo -e "${YELLOW}[4/7] Configuring Git repo credentials...${NC}"
 if kubectl -n "${NAMESPACE}" get secret repo-creds &> /dev/null; then
     echo -e "  ${GREEN}✓${NC} repo-creds secret already exists, skipping"
 else
@@ -232,51 +222,35 @@ else
 fi
 
 # Step 5: Add Argo Helm repo
-echo -e "${YELLOW}[5/8] Adding Argo Helm repository...${NC}"
+echo -e "${YELLOW}[5/7] Adding Argo Helm repository...${NC}"
 helm repo add argo https://argoproj.github.io/argo-helm 2>/dev/null || true
 helm repo update
 
-# Step 6: Build dependencies
-echo -e "${YELLOW}[6/8] Building Helm chart dependencies...${NC}"
+# Step 6: Build dependencies and deploy
+echo -e "${YELLOW}[6/7] Building Helm chart dependencies...${NC}"
 helm dependency build "${CHART_PATH}"
 
-# Step 7: Install/Upgrade Argo CD
-echo -e "${YELLOW}[7/8] Installing Argo CD (env: ${ENV})...${NC}"
+echo -e "${YELLOW}[7/7] Deploying Argo CD (env: ${ENV})...${NC}"
 echo -e "  This may take a few minutes while pods start up..."
-if [[ "$RECOVERY" == true ]]; then
-    echo -e "${YELLOW}  ⚠ RECOVERY MODE - bypassing Argo self-management${NC}"
-    HELM_OUTPUT=$(helm upgrade "${RELEASE_NAME}" "${CHART_PATH}" \
-        --namespace "${NAMESPACE}" \
-        --values "${VALUES_FILE}" \
-        --wait \
-        --timeout 5m 2>&1) || { echo -e "${RED}ERROR: Helm install failed${NC}"; echo "$HELM_OUTPUT" | grep -i "error"; exit 1; }
-else
-    HELM_OUTPUT=$(helm upgrade --install "${RELEASE_NAME}" "${CHART_PATH}" \
-        --namespace "${NAMESPACE}" \
-        --create-namespace \
-        --values "${VALUES_FILE}" \
-        --wait \
-        --timeout 5m 2>&1) || { echo -e "${RED}ERROR: Helm install failed${NC}"; echo "$HELM_OUTPUT" | grep -i "error"; exit 1; }
-fi
+HELM_OUTPUT=$(helm upgrade --install "${RELEASE_NAME}" "${CHART_PATH}" \
+    --namespace "${NAMESPACE}" \
+    --create-namespace \
+    --values "${VALUES_FILE}" \
+    --wait \
+    --timeout 5m 2>&1) || { echo -e "${RED}ERROR: Helm deploy failed${NC}"; echo "$HELM_OUTPUT" | grep -i "error"; exit 1; }
 
 # Show only the meaningful output
 echo "$HELM_OUTPUT" | grep -E "^(NAME|LAST DEPLOYED|NAMESPACE|STATUS|REVISION)" | while read -r line; do
     echo -e "  ${GREEN}${line}${NC}"
 done
-echo -e "  ${GREEN}✓${NC} Helm install complete"
-
-# Step 8: Wait for pods
-echo -e "${YELLOW}[8/8] Waiting for Argo CD pods to be ready...${NC}"
-kubectl -n "${NAMESPACE}" rollout status deployment/argocd-server --timeout=120s
-kubectl -n "${NAMESPACE}" rollout status deployment/argocd-repo-server --timeout=120s
-kubectl -n "${NAMESPACE}" rollout status deployment/argocd-applicationcontroller --timeout=120s 2>/dev/null || true
+echo -e "  ${GREEN}✓${NC} Helm deploy complete"
 
 # =============================================================================
 # Done
 # =============================================================================
 echo ""
 echo -e "${GREEN}╔══════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║         Bootstrap Complete!                   ║${NC}"
+echo -e "${GREEN}║         Deploy Complete!                      ║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════╝${NC}"
 echo ""
 echo -e "  Cluster:     ${GREEN}${CLUSTER_NAME}${NC}"
@@ -293,8 +267,7 @@ echo ""
 echo -e "  ${YELLOW}Login via CLI:${NC}"
 echo "    argocd login localhost:8080 --username admin --password <password> --insecure"
 echo ""
-echo -e "  ${GREEN}Next steps:${NC}"
-echo "    1. Push this repo to Git remote"
-echo "    2. Argo CD detects the self-manage Application and takes over"
-echo "    3. All future changes go through Git (GitOps)"
+echo -e "  ${YELLOW}To upgrade Argo CD later:${NC}"
+echo "    1. Edit argocd/values.yaml or argocd/Chart.yaml"
+echo "    2. Run: ./bootstrap/install.sh ${ENV}"
 echo ""
