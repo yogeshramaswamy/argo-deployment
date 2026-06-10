@@ -3,7 +3,7 @@
 
 global:
   domain: hayes-argocd.hayesinc.com
-  env: prod
+  environment: prod
 
 server:
   replicas: 3

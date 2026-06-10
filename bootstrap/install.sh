@@ -117,12 +117,15 @@ source "$ENV_FILE"
 set +a
 
 # Validate required variables from env file
-for var in CLUSTER_NAME REGION ENV; do
+for var in CLUSTER_NAME REGION ENV AWS_ACCOUNT_ID; do
     if [[ -z "${!var:-}" ]]; then
         echo -e "${RED}ERROR: ${var} is not set in ${ENV_FILE}${NC}"
         exit 1
     fi
 done
+
+# Build the cluster ARN for kubectl context
+CLUSTER_ARN="arn:aws:eks:${REGION}:${AWS_ACCOUNT_ID}:cluster/${CLUSTER_NAME}"
 
 # =============================================================================
 # Resolve values file
@@ -157,7 +160,7 @@ echo ""
 
 if [[ "$DRY_RUN" == true ]]; then
     echo -e "${YELLOW}[DRY RUN] Would execute the following steps:${NC}"
-    echo "  1. aws eks update-kubeconfig --name ${CLUSTER_NAME} --region ${REGION}"
+    echo "  1. kubectl config use-context ${CLUSTER_ARN}"
     echo "  2. kubectl create namespace ${NAMESPACE}"
     echo "  3. Create repo-creds secret (GitHub PAT for private repo access)"
     echo "  4. helm repo add argo https://argoproj.github.io/argo-helm"
@@ -180,12 +183,20 @@ for cmd in kubectl helm aws; do
 done
 echo -e "  ${GREEN}✓${NC} kubectl, helm, aws CLI found"
 
-# Step 2: Update kubeconfig for the target cluster
-echo -e "${YELLOW}[2/8] Switching kubectl context to: ${CLUSTER_NAME}...${NC}"
-aws eks update-kubeconfig --name "${CLUSTER_NAME}" --region "${REGION}"
+# Step 2: Set kubectl context using cluster ARN
+echo -e "${YELLOW}[2/8] Switching kubectl context to: ${CLUSTER_ARN}...${NC}"
+kubectl config use-context "${CLUSTER_ARN}"
 
 CURRENT_CONTEXT=$(kubectl config current-context)
 echo -e "  Context: ${GREEN}${CURRENT_CONTEXT}${NC}"
+
+# Verify cluster connectivity by listing nodes
+echo -e "  Verifying cluster connectivity..."
+if ! kubectl get nodes --no-headers 2>/dev/null; then
+    echo -e "${RED}ERROR: Cannot connect to cluster. Check your kubeconfig and credentials.${NC}"
+    exit 1
+fi
+echo -e "  ${GREEN}✓${NC} Cluster reachable"
 echo ""
 read -p "  Proceed with installation on this cluster? (y/n): " confirm
 if [[ "$confirm" != "y" ]]; then
