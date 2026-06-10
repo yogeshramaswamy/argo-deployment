@@ -1,0 +1,51 @@
+# Argo CD Values - PROD Environment
+# Cluster: symplr-hayes-prod-eks-cluster
+
+global:
+  domain: hayes-argocd.hayesinc.com
+
+server:
+  replicas: 3
+
+  ingress:
+    enabled: false
+
+  extraArgs:
+    - --insecure
+
+repoServer:
+  replicas: 3
+
+controller:
+  replicas: 1
+
+redis-ha:
+  enabled: true
+  haproxy:
+    enabled: true
+
+redis:
+  enabled: false
+
+configs:
+  params:
+    server.insecure: true
+
+  cm:
+    accounts.admin: apiKey, login
+    admin.enabled: "true"
+    url: https://hayes-argocd.hayesinc.com
+
+  rbac:
+    policy.default: role:readonly
+    policy.csv: |
+      g, admin, role:admin
+
+  secret:
+    createSecret: true
+
+applicationSet:
+  replicas: 2
+
+notifications:
+  enabled: false

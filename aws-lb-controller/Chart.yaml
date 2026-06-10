@@ -1,0 +1,11 @@
+apiVersion: v2
+name: aws-lb-controller
+description: AWS Load Balancer Controller for Hayes staging EKS cluster
+type: application
+version: 1.0.0
+appVersion: "2.7.x"
+
+dependencies:
+  - name: aws-load-balancer-controller
+    version: 1.8.x
+    repository: https://aws.github.io/eks-charts

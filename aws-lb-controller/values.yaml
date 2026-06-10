@@ -1,0 +1,21 @@
+aws-load-balancer-controller:
+  clusterName: symplr-hayes-stag-eks-cluster
+
+  serviceAccount:
+    create: true
+    name: aws-load-balancer-controller
+    annotations:
+      eks.amazonaws.com/role-arn: arn:aws:iam::952221970209:role/symplr-hayes-stag-eks-cluster-lb-controller-role
+
+  region: us-west-2
+  vpcId: "vpc-026f084f3f621438b"  # TODO: Add your VPC ID (optional but recommended)
+
+  replicaCount: 2
+
+  resources:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi

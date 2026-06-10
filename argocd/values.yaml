@@ -1,0 +1,80 @@
+# Argo CD Helm Chart Values
+# Source: https://github.com/argoproj/argo-helm/tree/main/charts/argo-cd
+# This file is managed by Argo CD itself (self-managed pattern)
+
+global:
+  domain: hayes-argocd-stag.hayesinc.com
+
+# -- Server Configuration
+server:
+  replicas: 2
+
+  # Ingress is managed separately via the shared ingress chart (ingress/)
+  ingress:
+    enabled: false
+
+  # Run insecure mode behind LB (TLS terminates at ALB)
+  extraArgs:
+    - --insecure
+
+# -- Repo Server
+repoServer:
+  replicas: 2
+
+# -- Application Controller
+controller:
+  replicas: 1
+
+# -- Redis (HA)
+redis-ha:
+  enabled: false
+
+redis:
+  enabled: true
+
+# -- Configs
+configs:
+  params:
+    # Run server without TLS (TLS terminated at ingress/LB)
+    server.insecure: true
+
+  cm:
+    accounts.admin: apiKey, login
+    admin.enabled: "true"
+
+    # Argo CD URL (for local testing with GitHub OAuth)
+    url: http://localhost:8080
+
+    # Dex GitHub OAuth (local testing)
+    dex.config: |
+      connectors:
+        - type: github
+          id: github
+          name: GitHub
+          config:
+            clientID: Ov23liN2SIikmVhv4l0h
+            clientSecret: $dex.github.clientSecret
+
+  rbac:
+    policy.default: role:admin
+
+  secret:
+    createSecret: true
+    # For production: create the secret manually via kubectl (don't commit secrets)
+    # kubectl -n argocd patch secret argocd-secret --patch='{"stringData":{"dex.github.clientSecret":"<secret>"}}'
+    #
+    # For local testing only (remove before pushing to Git):
+    extra:
+      dex.github.clientSecret: cdbd7a8c7ab254a51f89d4b8b34d76a9dfc18f6f
+
+# -- ApplicationSet Controller
+applicationSet:
+  replicas: 2
+
+# -- Notifications (optional - enable later)
+notifications:
+  enabled: false
+
+# -- Ingress (managed within this chart)
+ingress:
+  certificateArn: arn:aws:acm:us-west-2:952221970209:certificate/ecfa76d0-03d9-4d9c-b981-0f2cfc145e41
