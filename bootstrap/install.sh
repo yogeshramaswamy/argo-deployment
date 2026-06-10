@@ -242,21 +242,28 @@ helm dependency build "${CHART_PATH}"
 
 # Step 7: Install/Upgrade Argo CD
 echo -e "${YELLOW}[7/8] Installing Argo CD (env: ${ENV})...${NC}"
+echo -e "  This may take a few minutes while pods start up..."
 if [[ "$RECOVERY" == true ]]; then
     echo -e "${YELLOW}  ⚠ RECOVERY MODE - bypassing Argo self-management${NC}"
-    helm upgrade "${RELEASE_NAME}" "${CHART_PATH}" \
+    HELM_OUTPUT=$(helm upgrade "${RELEASE_NAME}" "${CHART_PATH}" \
         --namespace "${NAMESPACE}" \
         --values "${VALUES_FILE}" \
         --wait \
-        --timeout 5m
+        --timeout 5m 2>&1) || { echo -e "${RED}ERROR: Helm install failed${NC}"; echo "$HELM_OUTPUT" | grep -i "error"; exit 1; }
 else
-    helm upgrade --install "${RELEASE_NAME}" "${CHART_PATH}" \
+    HELM_OUTPUT=$(helm upgrade --install "${RELEASE_NAME}" "${CHART_PATH}" \
         --namespace "${NAMESPACE}" \
         --create-namespace \
         --values "${VALUES_FILE}" \
         --wait \
-        --timeout 5m
+        --timeout 5m 2>&1) || { echo -e "${RED}ERROR: Helm install failed${NC}"; echo "$HELM_OUTPUT" | grep -i "error"; exit 1; }
 fi
+
+# Show only the meaningful output
+echo "$HELM_OUTPUT" | grep -E "^(NAME|LAST DEPLOYED|NAMESPACE|STATUS|REVISION)" | while read -r line; do
+    echo -e "  ${GREEN}${line}${NC}"
+done
+echo -e "  ${GREEN}✓${NC} Helm install complete"
 
 # Step 8: Wait for pods
 echo -e "${YELLOW}[8/8] Waiting for Argo CD pods to be ready...${NC}"
