@@ -210,7 +210,7 @@ else
     fi
 
     kubectl -n "${NAMESPACE}" create secret generic repo-creds \
-        --from-literal=url=https://github.com/symplr-software/csm-evidenceanalysis-helm-build.git \
+        --from-literal=url=https://github.com/yogeshramaswamy/argo-deployment.git \
         --from-literal=username=git \
         --from-literal=password="${GITHUB_PAT}" \
         --from-literal=type=git

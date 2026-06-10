@@ -8,7 +8,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/symplr-software/csm-evidenceanalysis-helm-build.git
+    repoURL: https://github.com/yogeshramaswamy/argo-deployment.git
     targetRevision: main
     path: aws-lb-controller
     helm:
