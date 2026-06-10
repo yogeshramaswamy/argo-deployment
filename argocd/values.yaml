@@ -36,7 +36,7 @@ argo-cd:
       accounts.admin: apiKey, login
       admin.enabled: "true"
 
-      url: http://localhost:8080
+      url: https://hayes-argocd-stag.hayesinc.com
 
       dex.config: |
         connectors:
