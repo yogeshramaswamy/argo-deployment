@@ -1,8 +1,46 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: test-app
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-app
+  namespace: test-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: test-app
+  template:
+    metadata:
+      labels:
+        app: test-app
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:alpine
+          ports:
+            - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-app
+  namespace: test-app
+spec:
+  selector:
+    app: test-app
+  ports:
+    - port: 80
+      targetPort: 80
+---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: argocd-ingress
-  namespace: argocd
+  name: test-app-ingress
+  namespace: test-app
   annotations:
     alb.ingress.kubernetes.io/group.name: symplr-hayes-stag-eks-alb
     alb.ingress.kubernetes.io/scheme: internet-facing
@@ -11,17 +49,16 @@ metadata:
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
     alb.ingress.kubernetes.io/ssl-redirect: "443"
     alb.ingress.kubernetes.io/backend-protocol: HTTP
-    alb.ingress.kubernetes.io/target-group-attributes: stickiness.enabled=true,stickiness.lb_cookie.duration_seconds=3600
 spec:
   ingressClassName: alb
   rules:
-    - host: hayes-argocd-stag.hayesinc.com
+    - host: app-stag.hayesinc.com
       http:
         paths:
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: argocd-server
+                name: test-app
                 port:
                   number: 80
