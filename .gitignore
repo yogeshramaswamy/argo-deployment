@@ -35,6 +35,7 @@ vendor/
 *.key
 *.cert
 bootstrap/envs/
+bootstrap/keys/
 
 # OS files
 Thumbs.db

@@ -36,7 +36,7 @@ argo-cd:
       accounts.admin: apiKey, login
       admin.enabled: "true"
 
-      url: https://hayes-argocd-stag.hayesinc.com
+      url: __ARGOCD_URL__
 
       dex.config: |
         connectors:
@@ -44,16 +44,20 @@ argo-cd:
             id: github
             name: GitHub
             config:
-              clientID: Ov23liN2SIikmVhv4l0h
+              clientID: __GITHUB_APP_CLIENT_ID__
               clientSecret: $dex.github.clientSecret
+              orgs:
+                - name: symplr-software
+                  teams:
+                    - csm-argocd-admins
 
     rbac:
-      policy.default: role:admin
+      policy.default: role:readonly
+      policy.csv: |
+        g, symplr-software:csm-argocd-admins, role:admin
 
     secret:
       createSecret: true
-      extra:
-        dex.github.clientSecret: cdbd7a8c7ab254a51f89d4b8b34d76a9dfc18f6f
 
   applicationSet:
     replicas: 2

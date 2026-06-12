@@ -1,0 +1,97 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: alb-anchor
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alb-anchor-html
+  namespace: alb-anchor
+data:
+  index.html: |
+    <!DOCTYPE html>
+    <html>
+    <head><title>Hayes Staging ALB</title></head>
+    <body>
+    <h1>Hayes Staging Cluster</h1>
+    <p>Cluster: <strong>symplr-hayes-stag-eks-cluster</strong></p>
+    <p>Shared ALB is active: <strong>alb-symplr-hayes-stag-eks.hayesinc.com</strong></p>
+    <p>ALB Group: <strong>symplr-hayes-stag-eks-alb</strong></p>
+    <p>All services route through this load balancer via host or path-based rules.</p>
+    </body>
+    </html>
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alb-anchor
+  namespace: alb-anchor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: alb-anchor
+  template:
+    metadata:
+      labels:
+        app: alb-anchor
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:alpine
+          ports:
+            - containerPort: 80
+          resources:
+            limits:
+              cpu: 10m
+              memory: 16Mi
+            requests:
+              cpu: 10m
+              memory: 16Mi
+          volumeMounts:
+            - name: html
+              mountPath: /usr/share/nginx/html
+      volumes:
+        - name: html
+          configMap:
+            name: alb-anchor-html
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alb-anchor
+  namespace: alb-anchor
+spec:
+  selector:
+    app: alb-anchor
+  ports:
+    - port: 80
+      targetPort: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: alb-anchor-ingress
+  namespace: alb-anchor
+  annotations:
+    alb.ingress.kubernetes.io/group.name: symplr-hayes-stag-eks-alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-west-2:952221970209:certificate/ecfa76d0-03d9-4d9c-b981-0f2cfc145e41
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/backend-protocol: HTTP
+spec:
+  ingressClassName: alb
+  rules:
+    - host: alb-symplr-hayes-stag-eks.hayesinc.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: alb-anchor
+                port:
+                  number: 80

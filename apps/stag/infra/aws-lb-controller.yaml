@@ -5,12 +5,10 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-options: Prune=false
-  finalizers:
-    - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
   source:
-    repoURL: https://github.com/yogeshramaswamy/argo-deployment.git
+    repoURL: https://github.com/symplr-software/csm-evidenceanalysis-helm-build.git
     targetRevision: main
     path: aws-lb-controller
     helm:

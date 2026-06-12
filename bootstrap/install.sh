@@ -111,12 +111,22 @@ source "$ENV_FILE"
 set +a
 
 # Validate required variables from env file
-for var in CLUSTER_NAME REGION ENV AWS_ACCOUNT_ID; do
+for var in CLUSTER_NAME REGION ENV AWS_ACCOUNT_ID ARGOCD_URL GITHUB_APP_ID GITHUB_APP_INSTALLATION_ID GITHUB_APP_CLIENT_ID GITHUB_APP_CLIENT_SECRET GITHUB_APP_WEBHOOK_SECRET GITHUB_APP_PRIVATE_KEY_PATH; do
     if [[ -z "${!var:-}" ]]; then
         echo -e "${RED}ERROR: ${var} is not set in ${ENV_FILE}${NC}"
         exit 1
     fi
 done
+
+# Resolve private key path (relative to script dir)
+if [[ "${GITHUB_APP_PRIVATE_KEY_PATH}" != /* ]]; then
+    GITHUB_APP_PRIVATE_KEY_PATH="${REPO_ROOT}/${GITHUB_APP_PRIVATE_KEY_PATH}"
+fi
+
+if [[ ! -f "${GITHUB_APP_PRIVATE_KEY_PATH}" ]]; then
+    echo -e "${RED}ERROR: GitHub App private key not found: ${GITHUB_APP_PRIVATE_KEY_PATH}${NC}"
+    exit 1
+fi
 
 # Build the cluster ARN for kubectl context
 CLUSTER_ARN="arn:aws:eks:${REGION}:${AWS_ACCOUNT_ID}:cluster/${CLUSTER_NAME}"
@@ -232,28 +242,40 @@ echo -e "  ${GREEN}✓${NC} LB Controller pods ready"
 echo -e "${YELLOW}[4/8] Creating namespace '${ARGOCD_NAMESPACE}'...${NC}"
 kubectl create namespace "${ARGOCD_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
 
-# Step 5: Configure Git repo credentials (PAT)
-echo -e "${YELLOW}[5/8] Configuring Git repo credentials...${NC}"
-if kubectl -n "${ARGOCD_NAMESPACE}" get secret repo-creds &> /dev/null; then
-    echo -e "  ${GREEN}✓${NC} repo-creds secret already exists, skipping"
-else
-    if [[ -z "${GITHUB_PAT:-}" ]]; then
-        echo -e "${RED}ERROR: GITHUB_PAT is not set in ${ENV_FILE}${NC}"
-        echo -e "${YELLOW}HINT: Add your PAT to ${ENV_FILE}:${NC}"
-        echo -e "  GITHUB_PAT=ghp_xxxxxxxxxxxx"
-        exit 1
-    fi
+# Step 5: Configure GitHub App credentials
+echo -e "${YELLOW}[5/8] Configuring GitHub App credentials...${NC}"
 
-    kubectl -n "${ARGOCD_NAMESPACE}" create secret generic repo-creds \
-        --from-literal=url=https://github.com/yogeshramaswamy/argo-deployment.git \
-        --from-literal=username=git \
-        --from-literal=password="${GITHUB_PAT}" \
-        --from-literal=type=git
+# Repo credentials (for cloning)
+echo -e "  Creating repo-creds secret (GitHub App)..."
+kubectl -n "${ARGOCD_NAMESPACE}" create secret generic repo-creds \
+    --from-literal=url=https://github.com/symplr-software \
+    --from-literal=githubAppID="${GITHUB_APP_ID}" \
+    --from-literal=githubAppInstallationID="${GITHUB_APP_INSTALLATION_ID}" \
+    --from-file=githubAppPrivateKey="${GITHUB_APP_PRIVATE_KEY_PATH}" \
+    --from-literal=type=git \
+    --dry-run=client -o yaml | kubectl apply -f -
 
-    kubectl -n "${ARGOCD_NAMESPACE}" label secret repo-creds argocd.argoproj.io/secret-type=repository
+kubectl -n "${ARGOCD_NAMESPACE}" label secret repo-creds argocd.argoproj.io/secret-type=repo-creds --overwrite
 
-    echo -e "  ${GREEN}✓${NC} repo-creds secret created"
-fi
+echo -e "  ${GREEN}✓${NC} repo-creds secret configured"
+
+# Webhook secret
+echo -e "  Creating webhook secret..."
+kubectl -n "${ARGOCD_NAMESPACE}" create secret generic argocd-webhook-secret \
+    --from-literal=webhook.github.secret="${GITHUB_APP_WEBHOOK_SECRET}" \
+    --dry-run=client -o yaml | kubectl apply -f -
+
+echo -e "  ${GREEN}✓${NC} webhook secret configured"
+
+# Dex SSO secret (client secret for OAuth login)
+echo -e "  Creating Dex SSO secret..."
+kubectl -n "${ARGOCD_NAMESPACE}" patch secret argocd-secret --type=merge \
+    -p "{\"stringData\":{\"dex.github.clientSecret\":\"${GITHUB_APP_CLIENT_SECRET}\"}}" 2>/dev/null || \
+kubectl -n "${ARGOCD_NAMESPACE}" create secret generic argocd-secret \
+    --from-literal=dex.github.clientSecret="${GITHUB_APP_CLIENT_SECRET}" \
+    --dry-run=client -o yaml | kubectl apply -f -
+
+echo -e "  ${GREEN}✓${NC} Dex SSO secret configured"
 
 # Step 6: Add Argo Helm repo and build dependencies
 echo -e "${YELLOW}[6/8] Adding Argo Helm repository...${NC}"
@@ -261,15 +283,25 @@ helm repo add argo https://argoproj.github.io/argo-helm 2>/dev/null || true
 helm repo update
 helm dependency build "${ARGOCD_CHART_PATH}"
 
+# Generate values file with env substitutions
+ARGOCD_VALUES_RENDERED="/tmp/argocd-values-rendered.yaml"
+sed -e "s|__ARGOCD_URL__|${ARGOCD_URL}|g" \
+    -e "s|__GITHUB_APP_CLIENT_ID__|${GITHUB_APP_CLIENT_ID}|g" \
+    "${ARGOCD_VALUES}" > "${ARGOCD_VALUES_RENDERED}"
+echo -e "  ${GREEN}✓${NC} Values file rendered with env substitutions"
+
 # Step 7: Deploy Argo CD
 echo -e "${YELLOW}[7/8] Deploying Argo CD (env: ${ENV})...${NC}"
 echo -e "  This may take a few minutes while pods start up..."
 HELM_OUTPUT=$(helm upgrade --install "${ARGOCD_RELEASE}" "${ARGOCD_CHART_PATH}" \
     --namespace "${ARGOCD_NAMESPACE}" \
     --create-namespace \
-    --values "${ARGOCD_VALUES}" \
+    --values "${ARGOCD_VALUES_RENDERED}" \
     --wait \
     --timeout 5m 2>&1) || { echo -e "${RED}ERROR: Argo CD deploy failed${NC}"; echo "$HELM_OUTPUT" | grep -i "error"; exit 1; }
+
+# Cleanup rendered values
+rm -f "${ARGOCD_VALUES_RENDERED}"
 
 echo "$HELM_OUTPUT" | grep -E "^(NAME|LAST DEPLOYED|NAMESPACE|STATUS|REVISION)" | while read -r line; do
     echo -e "  ${GREEN}${line}${NC}"

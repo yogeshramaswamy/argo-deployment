@@ -36,29 +36,31 @@ This repository contains Helm charts and Kubernetes manifests for deploying Haye
 ## Repository Structure
 
 ```
-├── argocd/                      # Argo CD Helm chart (deployed via bootstrap)
+├── argocd/                      # Argo CD Helm chart (see argocd/README.md)
 │   ├── Chart.yaml               # Helm chart with argo-cd dependency
-│   ├── values.yaml              # Staging values (default)
-│   ├── values-dev.yaml          # Dev overrides
-│   ├── values-prod.yaml         # Prod overrides
+│   ├── values.yaml              # Shared values with __PLACEHOLDER__ tokens
+│   ├── README.md                # Detailed ArgoCD config documentation
 │   └── templates/
-│       └── app-of-apps.yaml    # App-of-Apps Application CR
+│       ├── app-of-apps.yaml     # Two App-of-Apps (infra + workloads)
+│       └── projects.yaml        # AppProjects (infra + workloads)
 ├── aws-lb-controller/           # AWS Load Balancer Controller chart
 │   ├── Chart.yaml
 │   └── values.yaml
 ├── apps/                        # Workload manifests (managed by Argo)
 │   └── stag/
-│       ├── argocd-ingress.yaml  # Argo CD ingress (shared ALB)
-│       ├── aws-lb-controller.yaml # LB Controller Application CR
-│       └── <service>.yaml       # Add new services here
+│       ├── infra/               # Infrastructure (ArgoCD ingress, LB controller)
+│       │   ├── argocd-ingress.yaml
+│       │   ├── alb-anchor-ingress.yaml
+│       │   └── aws-lb-controller.yaml
+│       └── app-workloads/       # Microservices
+│           └── <service>.yaml   # Add new services here
 ├── bootstrap/
 │   ├── install.sh               # Deploy script (install + upgrade)
 │   └── envs/
 │       ├── dev.env
 │       ├── stag.env
 │       └── prod.env
-└── docs/
-    └── argocd-setup.md
+└── .gitignore                   # Excludes envs/, keys/, *.pem
 ```
 
 ## Quick Start
@@ -115,15 +117,16 @@ Same command — `install.sh` handles both install and upgrade:
 
 ### What Argo CD manages
 
-After bootstrap, Argo CD watches `apps/<env>/` and deploys everything in there:
-- Ingress resources (shared ALB)
-- Microservice Application CRs
-- Any raw Kubernetes manifests
+After bootstrap, Argo CD watches two folders via App-of-Apps:
+- `apps/<env>/infra/` — Infrastructure (ingress, LB controller Application CR)
+- `apps/<env>/app-workloads/` — Microservice Application CRs
 
 ### What Argo CD does NOT manage
 
 - Itself (deployed via `bootstrap/install.sh`)
-- AWS Load Balancer Controller (deployed via `bootstrap/install.sh`)
+- AWS Load Balancer Controller Helm release (deployed via `bootstrap/install.sh`)
+
+> For detailed ArgoCD configuration (auth, RBAC, projects, placeholders), see [argocd/README.md](argocd/README.md)
 
 ## Shared ALB (Single Load Balancer per Cluster)
 

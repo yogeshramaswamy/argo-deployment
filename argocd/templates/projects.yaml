@@ -1,0 +1,48 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: infra
+  namespace: argocd
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-1"
+spec:
+  description: Infrastructure components - access to all namespaces
+  sourceRepos:
+    - https://github.com/symplr-software/csm-evidenceanalysis-helm-build.git
+    - https://aws.github.io/eks-charts
+    - https://argoproj.github.io/argo-helm
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: "*"
+  clusterResourceWhitelist:
+    - group: "*"
+      kind: "*"
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: workloads
+  namespace: argocd
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-1"
+spec:
+  description: Application microservices - restricted to service namespaces
+  sourceRepos:
+    - https://github.com/symplr-software/*
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: "*"
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"
+  namespaceResourceBlacklist:
+    - group: ""
+      kind: ResourceQuota
+    - group: ""
+      kind: LimitRange

@@ -1,21 +1,19 @@
-# App of Apps - this Application watches the apps/ directory
-# and deploys all Application CRs found there
+# App of Apps - Infra
+# Watches apps/<env>/infra/ for infrastructure components
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: hayes-apps
+  name: hayes-infra
   namespace: argocd
   annotations:
     "helm.sh/hook": post-install,post-upgrade
     "helm.sh/hook-weight": "0"
-  finalizers:
-    - resources-finalizer.argocd.argoproj.io
 spec:
-  project: default
+  project: infra
   source:
-    repoURL: https://github.com/yogeshramaswamy/argo-deployment.git
+    repoURL: https://github.com/symplr-software/csm-evidenceanalysis-helm-build.git
     targetRevision: main
-    path: apps/{{ .Values.global.environment }}
+    path: apps/{{ .Values.global.environment }}/infra
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd
@@ -25,3 +23,30 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
+---
+# App of Apps - Workloads
+# Watches apps/<env>/app-workloads/ for microservices
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: hayes-app-workloads
+  namespace: argocd
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "1"
+spec:
+  project: workloads
+  source:
+    repoURL: https://github.com/symplr-software/csm-evidenceanalysis-helm-build.git
+    targetRevision: main
+    path: apps/{{ .Values.global.environment }}/app-workloads
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - RespectIgnoreDifferences=true
